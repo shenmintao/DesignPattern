@@ -466,3 +466,256 @@ Java栈上的所有数据都是私有的。任何线程都不能访问另一个�
 **（Vector现在已经不常用了）**
 
 **想让ArrayList变为线程安全的，请使用List<T> list = Collections.synchronizedList(ArrayList);**
+
+## wait()与notify()
+
+https://www.liaoxuefeng.com/wiki/1252599548343744/1306580911915042
+
+synchronized并没有解决多线程协调的问题。
+
+有如下程序
+
+```java
+class TaskQueue {
+    Queue<String> queue = new LinkedList<>();
+
+    public synchronized void addTask(String s) {
+        this.queue.add(s);
+    }
+
+    public synchronized String getTask() {
+        while (queue.isEmpty()) {
+        }
+        return queue.remove();
+    }
+}
+```
+
+上述代码看上去没有问题：getTask()内部先判断队列是否为空，如果为空，就循环等待，直到另一个线程往队列中放入了一个任务，while()循环退出，就可以返回队列的元素了。
+
+但实际上while()循环永远不会退出。因为线程在执行while()循环时，已经在getTask()入口获取了this锁，其他线程根本无法调用addTask()，因为addTask()执行条件也是获取this锁。
+
+因此，执行上述代码，线程会在getTask()中因为死循环而100%占用CPU资源。
+
+如果深入思考一下，我们想要的执行效果是：
+
+线程1可以调用addTask()不断往队列中添加任务；
+
+线程2可以调用getTask()从队列中获取任务。如果队列为空，则getTask()应该等待，直到队列中至少有一个任务时再返回。
+
+因此，多线程协调运行的原则就是：当条件不满足时，线程进入等待状态；当条件满足时，线程被唤醒，继续执行任务。
+
+对于上述TaskQueue，我们先改造getTask()方法，在条件不满足时，线程进入等待状态：
+
+```java
+public synchronized String getTask() {
+    while (queue.isEmpty()) {
+        this.wait();
+    }
+    return queue.remove();
+}
+```
+
+当一个线程执行到getTask()方法内部的while循环时，它必定已经获取到了this锁，此时，线程执行while条件判断，如果条件成立（队列为空），线程将执行this.wait()，进入等待状态。
+
+这里的关键是：wait()方法必须在当前获取的锁对象上调用，这里获取的是this锁，因此调用this.wait()。
+
+调用wait()方法后，线程进入等待状态，wait()方法不会返回，直到将来某个时刻，线程从等待状态被其他线程唤醒后，wait()方法才会返回，然后，继续执行下一条语句。
+
+有些仔细的童鞋会指出：即使线程在getTask()内部等待，其他线程如果拿不到this锁，照样无法执行addTask()，肿么办？
+
+这个问题的关键就在于wait()方法的执行机制非常复杂。首先，它不是一个普通的Java方法，而是定义在Object类的一个native方法，也就是由JVM的C代码实现的。其次，必须在synchronized块中才能调用wait()方法，因为wait()方法调用时，会释放线程获得的锁，wait()方法返回后，线程又会重新试图获得锁。
+
+因此，只能在锁对象上调用wait()方法。因为在getTask()中，我们获得了this锁，因此，只能在this对象上调用wait()方法：
+
+```
+public synchronized String getTask() {
+    while (queue.isEmpty()) {
+        // 释放this锁:
+        this.wait();
+        // 重新获取this锁
+    }
+    return queue.remove();
+}
+```
+
+当一个线程在this.wait()等待时，它就会释放this锁，从而使得其他线程能够在addTask()方法获得this锁。
+
+现在我们面临第二个问题：如何让等待的线程被重新唤醒，然后从wait()方法返回？答案是在相同的锁对象上调用notify()方法。我们修改addTask()如下：
+
+```java
+public synchronized void addTask(String s) {
+    this.queue.add(s);
+    this.notify(); // 唤醒在this锁等待的线程
+}
+```
+
+这个例子中，我们重点关注addTask()方法，内部调用了this.notifyAll()而不是this.notify()，使用notifyAll()将唤醒所有当前正在this锁等待的线程，而notify()只会唤醒其中一个（具体哪个依赖操作系统，有一定的随机性）。这是因为可能有多个线程正在getTask()方法内部的wait()中等待，使用notifyAll()将一次性全部唤醒。通常来说，notifyAll()更安全。有些时候，如果我们的代码逻辑考虑不周，用notify()会导致只唤醒了一个线程，而其他线程可能永远等待下去醒不过来了。
+
+但是，注意到wait()方法返回时需要重新获得this锁。假设当前有3个线程被唤醒，唤醒后，首先要等待执行addTask()的线程结束此方法后，才能释放this锁，随后，这3个线程中只能有一个获取到this锁，剩下两个将继续等待。
+
+**wait()方法在线程被唤醒后会直接接着后面执行，因此如果有条件需要判断的话在wait()后还需要再处理一次**
+
+## 其它几种锁
+
+### ReentrantLock 
+
+https://www.liaoxuefeng.com/wiki/1252599548343744/1306580960149538
+
+```java
+private final Lock lock = new ReentrantLock();
+lock.lock();    //上锁
+lock.unlock();  //解锁
+lock.tryLock(1, TimeUnit.SECONDS);  //尝试获得锁，在超时后返回false
+```
+
+用于替代synchronized的wait和notify
+
+### Condition
+
+https://www.liaoxuefeng.com/wiki/1252599548343744/1306581033549858
+
+```java
+class TaskQueue {
+    private final Lock lock = new ReentrantLock();
+    private final Condition condition = lock.newCondition();
+    private Queue<String> queue = new LinkedList<>();
+
+    public void addTask(String s) {
+        lock.lock();
+        try {
+            queue.add(s);
+            condition.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public String getTask() {
+        lock.lock();
+        try {
+            while (queue.isEmpty()) {
+                condition.await();
+            }
+            return queue.remove();
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+Condition提供的await()、signal()、signalAll()原理和synchronized锁对象的wait()、notify()、notifyAll()是一致的，并且其行为也是一样的：
+
+await()会释放当前锁，进入等待状态；
+
+signal()会唤醒某个等待线程；
+
+signalAll()会唤醒所有等待线程；
+
+唤醒线程从await()返回后需要重新获得锁。
+
+此外，和tryLock()类似，await()可以在等待指定时间后，如果还没有被其他线程通过signal()或signalAll()唤醒，可以自己醒来：
+
+### ReadWriteLock 读写锁
+
+只有一个线程能获得写锁，所有线程都能获得读锁
+
+```java
+public class Counter {
+    private final ReadWriteLock rwlock = new ReentrantReadWriteLock();
+    private final Lock rlock = rwlock.readLock();
+    private final Lock wlock = rwlock.writeLock();
+    private int[] counts = new int[10];
+
+    public void inc(int index) {
+        wlock.lock(); // 加写锁
+        try {
+            counts[index] += 1;
+        } finally {
+            wlock.unlock(); // 释放写锁
+        }
+    }
+
+    public int[] get() {
+        rlock.lock(); // 加读锁
+        try {
+            return Arrays.copyOf(counts, counts.length);
+        } finally {
+            rlock.unlock(); // 释放读锁
+        }
+    }
+}
+```
+
+ReadWriteLock只允许一个线程写入；
+
+ReadWriteLock允许多个线程在没有写入时同时读取；
+
+ReadWriteLock适合读多写少的场景。
+
+### StampedLock 乐观锁
+
+StampedLock和ReadWriteLock相比，改进之处在于：读的过程中也允许获取写锁后写入！这样一来，我们读的数据就可能不一致，所以，需要一点额外的代码来判断读的过程中是否有写入，这种读锁是一种乐观锁。
+
+```java
+public class Point {
+    private final StampedLock stampedLock = new StampedLock();
+
+    private double x;
+    private double y;
+
+    public void move(double deltaX, double deltaY) {
+        long stamp = stampedLock.writeLock(); // 获取写锁
+        try {
+            x += deltaX;
+            y += deltaY;
+        } finally {
+            stampedLock.unlockWrite(stamp); // 释放写锁
+        }
+    }
+
+    public double distanceFromOrigin() {
+        long stamp = stampedLock.tryOptimisticRead(); // 获得一个乐观读锁
+        // 注意下面两行代码不是原子操作
+        // 假设x,y = (100,200)
+        double currentX = x;
+        // 此处已读取到x=100，但x,y可能被写线程修改为(300,400)
+        double currentY = y;
+        // 此处已读取到y，如果没有写入，读取是正确的(100,200)
+        // 如果有写入，读取是错误的(100,400)
+        if (!stampedLock.validate(stamp)) { // 检查乐观读锁后是否有其他写锁发生
+            stamp = stampedLock.readLock(); // 获取一个悲观读锁
+            try {
+                currentX = x;
+                currentY = y;
+            } finally {
+                stampedLock.unlockRead(stamp); // 释放悲观读锁
+            }
+        }
+        return Math.sqrt(currentX * currentX + currentY * currentY);
+    }
+}
+```
+
+StampedLock把读锁细分为乐观读和悲观读，能进一步提升并发效率。但这也是有代价的：一是代码更加复杂，二是StampedLock是不可重入锁，不能在一个线程中反复获取同一个锁。
+
+**可重入是某个线程已经获得某个锁，可以再次获取锁而不会出现死锁。**
+
+## Concurrent集合
+
+**线程安全的数据结构**
+
+BlockingQueue的意思就是说，当一个线程调用这个TaskQueue的getTask()方法时，该方法内部可能会让线程变成等待状态，直到队列条件满足不为空，线程被唤醒后，getTask()方法才会返回。
+
+ ，所以我们不必自己编写，可以直接使用Java标准库的java.util.concurrent包提供的线程安全的集合：ArrayBlockingQueue。
+
+除了BlockingQueue外，针对List、Map、Set、Deque等，java.util.concurrent包也提供了对应的并发集合类。我们归纳一下：
+
+| interface |       non-thread-safe |      thread-safe     |
+|   ----    |          ----         |        ----          |
+|   List    |        ArrayList      | CopyOnWriteArrayList |
+|   Map     |        HashMap        |  ConcurrentHashMap   |
+|   Queue   |ArrayDeque / LinkedList|ArrayBlockingQueue / LinkedBlockingQueue |
+|   Deque   |ArrayDeque / LinkedList|  LinkedBlockingDeque |
+

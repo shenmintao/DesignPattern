@@ -179,4 +179,3 @@ public class DBConnectionPool extends Pool{
     }
 }
 
-//欠缺wait，notifyAll的使用方法
