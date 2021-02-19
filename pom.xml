@@ -11,6 +11,8 @@
     <modules>
         <module>FactoryPattern</module>
         <module>SingletonPattern</module>
+        <module>PrototypePattern</module>
+        <module>ProxyPattern</module>
     </modules>
 
 
