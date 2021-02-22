@@ -1,11 +1,11 @@
 package com.minq.proxypattern;
 
-public class DynamicDataSourceEntity {
+public class DynamicDataSourceEntry {
     public final static String DEFAULT_SOURCE = null;
 
     private final static ThreadLocal<String> local = new ThreadLocal<>();
 
-    private DynamicDataSourceEntity(){};
+    private DynamicDataSourceEntry(){};
 
     //清空数据源
     public static void clear() {
