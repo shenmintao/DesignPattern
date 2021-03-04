@@ -2,19 +2,17 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>DesignPattern</artifactId>
+        <groupId>com.minq</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.minq</groupId>
-    <artifactId>DesignPattern</artifactId>
+    <artifactId>DelegatePattern</artifactId>
     <packaging>pom</packaging>
-    <version>1.0-SNAPSHOT</version>
     <modules>
-        <module>FactoryPattern</module>
-        <module>SingletonPattern</module>
-        <module>PrototypePattern</module>
-        <module>ProxyPattern</module>
-        <module>DelegatePattern</module>
-        <module>StrategyPattern</module>
+        <module>Delegate</module>
     </modules>
 
 

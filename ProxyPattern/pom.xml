@@ -18,6 +18,8 @@
     <modules>
         <module>StaticProxy</module>
         <module>DynamicProxy</module>
+        <module>GPProxy</module>
+        <module>CglibProxy</module>
     </modules>
 
 
