@@ -17,6 +17,8 @@
         <module>StrategyPattern</module>
         <module>TemplatePattern</module>
         <module>AdapterPattern</module>
+        <module>DecoratorPattern</module>
+        <module>ObserverPattern</module>
     </modules>
 
 
